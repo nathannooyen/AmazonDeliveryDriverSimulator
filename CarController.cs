@@ -1,131 +1,238 @@
+// ============================================================
+//  HOW TO ADD A NEW SCRIPT IN UNITY
+// ============================================================
+//  1. In the Project window, right-click the folder you want
+//     (e.g. Assets/Scripts) -> Create -> C# Script.
+//     Name it exactly the same as the class inside it.
+//
+//  2. Double-click the file to open it in your editor (VS or Rider).
+//     Replace the default contents with your script.
+//
+//  3. Attach the script to a GameObject:
+//     - Select the GameObject in the Hierarchy.
+//     - Drag the script from the Project window onto the Inspector,
+//       OR click "Add Component" in the Inspector and search by name.
+//
+//  4. If the script requires other components (e.g. Rigidbody2D),
+//     Unity will add them automatically when [RequireComponent] is present.
+//
+//  5. Set any public / [SerializeField] fields that appear in the Inspector.
+//
+//  For THIS project specifically:
+//  - CarController   -> attach to your car GameObject (needs Rigidbody2D).
+//  - House           -> attach to each house GameObject (needs a 2D Collider
+//                       set to "Is Trigger", and a SpriteRenderer).
+//  - DeliveryManager -> attach to any persistent/empty GameObject in the scene.
+//                       All Houses are found automatically at runtime.
+// ============================================================
+
 using UnityEngine;
 using UnityEngine.InputSystem;
+
+[System.Serializable]
+public struct CarStats
+{
+    [Header("Movement")]
+    public float accelerationForce;
+    public float maxSpeed;
+    public float baseTurnSpeed;
+
+    [Tooltip("How quickly the car slows when no throttle is applied.\n" +
+             "0 = coasts forever. Higher values = faster stop.")]
+    public float coastingDrag;
+
+    [Header("Speed-Sensitive Steering")]
+    [Tooltip("X axis = speed fraction (0-1), Y axis = turn speed multiplier.")]
+    public AnimationCurve turnSpeedCurve;
+
+    [Header("Steering Feel")]
+    [Tooltip("How quickly steering ramps up when a key is pressed. Higher = more instant.")]
+    public float steerInSpeed;
+
+    [Tooltip("How quickly steering fades out when the key is released. Higher = snappier stop.")]
+    public float steerOutSpeed;
+
+    [Header("Drift / Brake (Shift)")]
+    public float normalGrip;
+    public float driftGrip;
+    public float driftSpeedThreshold;
+    public float driftTransitionSpeed;
+    public float driftTurnMultiplier;
+
+    [Tooltip("Braking force applied while Shift is held.\n" +
+             "Higher = harder stop. Stacks with reduced drift grip at speed for a skid feel.")]
+    public float brakeForce;
+
+    [Header("Feel")]
+    public float visualTiltAmount;
+    public float visualTiltSpeed;
+
+    public static CarStats Default()
+    {
+        CarStats s;
+        s.accelerationForce    = 15f;
+        s.maxSpeed             = 10f;
+        s.baseTurnSpeed        = 160f;
+        s.coastingDrag         = 1f;
+
+        Keyframe[] keys = new Keyframe[]
+        {
+            new Keyframe(0f,   1.6f),
+            new Keyframe(0.3f, 1.2f),
+            new Keyframe(0.6f, 0.8f),
+            new Keyframe(1f,   0.4f),
+        };
+        s.turnSpeedCurve = new AnimationCurve(keys);
+
+        s.steerInSpeed         = 12f;
+        s.steerOutSpeed        = 8f;
+
+        s.normalGrip           = 0.9f;
+        s.driftGrip            = 0.3f;
+        s.driftSpeedThreshold  = 4f;
+        s.driftTransitionSpeed = 6f;
+        s.driftTurnMultiplier  = 1.8f;
+        s.brakeForce           = 18f;
+
+        s.visualTiltAmount = 8f;
+        s.visualTiltSpeed  = 8f;
+        return s;
+    }
+}
 
 [RequireComponent(typeof(Rigidbody2D))]
 public class CarController : MonoBehaviour
 {
-    [Header("Movement")]
-    public float accelerationForce = 15f;
-    public float maxSpeed = 10f;
-    public float turnSpeed = 160f;
+    [Header("Stats (edit here or call ApplyUpgrade at runtime)")]
+    public CarStats stats = CarStats.Default();
 
-    [Header("Drift")]
-    public float normalGrip = 0.9f;          // lateral velocity damping when not drifting
-    public float driftGrip = 0.3f;           // lower = more slide
-    public float driftSpeedThreshold = 4f;   // minimum speed to trigger drift
-    public float driftTransitionSpeed = 6f;  // how fast grip blends in/out
-
-    [Header("Feel")]
-    public float visualTiltAmount = 8f;      // degrees the sprite tilts when turning
-    public float visualTiltSpeed = 8f;
-
-    // ── internals ──────────────────────────────────────────────────────────
     private Rigidbody2D rb;
     private float currentGrip;
     private float targetGrip;
     private float visualTiltAngle;
-    private bool isDrifting;
+    private bool  isDrifting;
 
-    // Input
     private float throttle;
-    private float steer;
-    private bool driftInput;
+    private float steer;         // raw input (-1, 0, 1)
+    private float currentSteer;  // smoothed value used for rotation
+    private bool  brakeInput;
 
     void Awake()
     {
-        rb = GetComponent<Rigidbody2D>();
-        currentGrip = normalGrip;
+        rb          = GetComponent<Rigidbody2D>();
+        currentGrip = stats.normalGrip;
     }
 
     void Update()
     {
-        // ── Read input ─────────────────────────────────────────────────────
-        // Vertical input (W/S or Up/Down)
+        // ── Throttle ───────────────────────────────────────────────────────
         throttle = 0f;
         if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed)
             throttle = 1f;
         else if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed)
             throttle = -1f;
 
-        // Horizontal input (A/D or Left/Right)
+        // ── Steering (raw input) ───────────────────────────────────────────
         steer = 0f;
         if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed)
             steer = -1f;
         else if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed)
             steer = 1f;
 
-        // Drift input (Shift)
-        driftInput = Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed;
+        // ── Brake / Drift ──────────────────────────────────────────────────
+        brakeInput = Keyboard.current.leftShiftKey.isPressed ||
+                     Keyboard.current.rightShiftKey.isPressed;
 
-        // ── Drift eligibility ──────────────────────────────────────────────
-        isDrifting = driftInput && rb.linearVelocity.magnitude >= driftSpeedThreshold;
-        targetGrip = isDrifting ? driftGrip : normalGrip;
+        isDrifting = brakeInput && rb.linearVelocity.magnitude >= stats.driftSpeedThreshold;
+        targetGrip = isDrifting ? stats.driftGrip : stats.normalGrip;
 
-        // ── Smooth grip transition ─────────────────────────────────────────
-        currentGrip = Mathf.Lerp(currentGrip, targetGrip, Time.deltaTime * driftTransitionSpeed);
+        currentGrip = Mathf.Lerp(currentGrip, targetGrip,
+                                 Time.deltaTime * stats.driftTransitionSpeed);
 
-        // ── Visual tilt (cosmetic, does not affect physics) ────────────────
-        float tiltTarget = -steer * visualTiltAmount * (rb.linearVelocity.magnitude / maxSpeed);
-        visualTiltAngle  = Mathf.Lerp(visualTiltAngle, tiltTarget, Time.deltaTime * visualTiltSpeed);
+        // ── Visual tilt ────────────────────────────────────────────────────
+        float tiltTarget = -steer * stats.visualTiltAmount *
+                           (rb.linearVelocity.magnitude / stats.maxSpeed);
+        visualTiltAngle  = Mathf.Lerp(visualTiltAngle, tiltTarget,
+                                      Time.deltaTime * stats.visualTiltSpeed);
     }
 
     void FixedUpdate()
     {
-        // ── Steering  (only when moving) ──────────────────────────────────
-        //float speedFactor   = rb.linearVelocity.magnitude / maxSpeed;
-        //float rotationDelta = steer * turnSpeed * Mathf.Clamp01(speedFactor) * Time.fixedDeltaTime;
-        //rb.MoveRotation(rb.rotation + rotationDelta);
-        // ── Steering (enhanced for drifting) ─────────────────────────────
+        float speed         = rb.linearVelocity.magnitude;
+        float speedFraction = speed / stats.maxSpeed;
 
-        // How sideways the car is moving (0 = straight, 1 = fully sideways)
+        // ── Smooth steering ────────────────────────────────────────────────
+        // Ramps in quickly when a key is held, eases out when released.
+        float steerRate = (Mathf.Abs(steer) > 0.01f) ? stats.steerInSpeed : stats.steerOutSpeed;
+        currentSteer    = Mathf.MoveTowards(currentSteer, steer, steerRate * Time.fixedDeltaTime);
+
+        // ── Turn speed ─────────────────────────────────────────────────────
+        float curveMultiplier = stats.turnSpeedCurve.Evaluate(speedFraction);
+
         Vector2 velocityDir = rb.linearVelocity.normalized;
-        float driftAmount = Mathf.Abs(Vector2.Dot(velocityDir, transform.right));
+        float   driftAmount = Mathf.Abs(Vector2.Dot(velocityDir, transform.right));
+        float   driftBoost  = isDrifting
+                                  ? Mathf.Lerp(1f, stats.driftTurnMultiplier, driftAmount)
+                                  : 1f;
 
-        // Boost turning when drifting
-        float driftTurnMultiplier = 1.8f; // tweak this (1.5–2.5 feels good)
+        float finalTurnSpeed = stats.baseTurnSpeed * curveMultiplier * driftBoost;
 
-        // Optional: extra boost only when drift button is held
-        float driftBoost = isDrifting ? driftTurnMultiplier : 1f;
-
-        // Combine everything
-        float speedFactor = rb.linearVelocity.magnitude / maxSpeed;
-        float finalTurnSpeed = turnSpeed * Mathf.Lerp(1f, driftBoost, driftAmount);
-
-        float rotationDelta = steer * finalTurnSpeed * Mathf.Clamp01(speedFactor) * Time.fixedDeltaTime;
+        float movingDir     = Mathf.Sign(Vector2.Dot(rb.linearVelocity, transform.up));
+        float rotationDelta = currentSteer * finalTurnSpeed
+                              * Mathf.Clamp01(speedFraction)
+                              * movingDir
+                              * Time.fixedDeltaTime;
 
         rb.MoveRotation(rb.rotation + rotationDelta);
 
-        // ── Acceleration  (forward in the direction the car faces) ────────
+        // ── Acceleration ───────────────────────────────────────────────────
         if (throttle != 0f)
         {
-            Vector2 forwardDir = transform.up;
-            Vector2 force      = forwardDir * throttle * accelerationForce;
-
-            // Only apply force if under max speed (or braking)
-            if (rb.linearVelocity.magnitude < maxSpeed || throttle < 0f)
+            Vector2 force = transform.up * throttle * stats.accelerationForce;
+            if (speed < stats.maxSpeed || throttle < 0f)
                 rb.AddForce(force, ForceMode2D.Force);
         }
 
+        // ── Braking (Shift held) ───────────────────────────────────────────
+        if (brakeInput && speed > 0.01f)
+        {
+            float   forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
+            Vector2 brakeForce   = -(Vector2)transform.up
+                                   * Mathf.Sign(forwardSpeed)
+                                   * stats.brakeForce
+                                   * Time.fixedDeltaTime;
+
+            Vector2 newVelocity = rb.linearVelocity + brakeForce;
+            if (Mathf.Sign(Vector2.Dot(newVelocity, transform.up)) != Mathf.Sign(forwardSpeed))
+                newVelocity -= (Vector2)transform.up * Vector2.Dot(newVelocity, transform.up);
+
+            rb.linearVelocity = newVelocity;
+        }
+
+        // ── Coasting drag ──────────────────────────────────────────────────
+        if (throttle == 0f && !brakeInput && stats.coastingDrag > 0f)
+        {
+            float forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
+            float dragForce    = forwardSpeed * stats.coastingDrag;
+            rb.linearVelocity -= (Vector2)transform.up * dragForce * Time.fixedDeltaTime;
+        }
+
         // ── Grip / lateral damping ─────────────────────────────────────────
-        // Cancel out side-slip proportional to grip value
         Vector2 rightDir     = transform.right;
         float   lateralSpeed = Vector2.Dot(rb.linearVelocity, rightDir);
-        Vector2 lateralVel   = rightDir * lateralSpeed;
-        rb.linearVelocity   -= lateralVel * currentGrip;
+        rb.linearVelocity   -= rightDir * lateralSpeed * currentGrip;
 
-        // ── Apply visual tilt to the sprite ───────────────────────────────
-        // We rotate the visual child (or the whole object if no child).
-        // Here we bake it into the rigidbody rotation offset via the sprite.
-        // If you have a separate sprite child, rotate that instead.
-        // For simplicity, we apply a small rotation on top of physics rotation:
+        // ── Visual tilt ────────────────────────────────────────────────────
         transform.rotation = Quaternion.Euler(0f, 0f, rb.rotation + visualTiltAngle);
     }
 
-    // ── Public helpers for future extensions ──────────────────────────────
+    // ── Public API ─────────────────────────────────────────────────────────
+
+    public void ApplyUpgrade(CarStats newStats) => stats = newStats;
 
     /// <summary>Returns 0-1 where 1 is full drift.</summary>
     public float DriftIntensity => isDrifting ? 1f - currentGrip : 0f;
 
     /// <summary>Current speed as 0-1 fraction of maxSpeed.</summary>
-    public float SpeedFraction => rb.linearVelocity.magnitude / maxSpeed;
+    public float SpeedFraction => rb.linearVelocity.magnitude / stats.maxSpeed;
 }
