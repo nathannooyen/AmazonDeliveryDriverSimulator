@@ -1,46 +1,6 @@
 // ============================================================
 //  House.cs
 // ============================================================
-//  HOW TO ADD THIS SCRIPT IN UNITY
-// ============================================================
-//  1. Right-click your Scripts folder → Create → C# Script.
-//     Name it exactly "House".
-//
-//  2. Create or select a house GameObject in your scene
-//     (this can be a sprite, prefab, etc.).
-//
-//  3. Attach this script to the house GameObject.
-//
-//  4. REQUIRED COMPONENTS ON THE HOUSE:
-//     - A 2D Collider (e.g. BoxCollider2D) with "Is Trigger"
-//       CHECKED. This is the delivery zone.
-//     - A SpriteRenderer (for visual state changes).
-//
-//  5. In the Inspector, set:
-//     - Car Tag           : "Player" (must match your car's tag)
-//     - Require Stop      : if true, the car must be nearly
-//                           stopped to complete a delivery
-//     - Max Delivery Speed: speed threshold when Require Stop
-//                           is enabled (default 1)
-//
-//  6. VISUALS — drag sprites into:
-//     - Sprite Renderer    → the house's SpriteRenderer
-//     - Idle Sprite        → appearance when no delivery needed
-//     - Requested Sprite   → appearance when waiting for delivery
-//
-//  7. Optionally drag a ParticleSystem into "Success Effect"
-//     for visual feedback on delivery completion.
-//
-//  8. REQUIRED IN SCENE:
-//     - The player car must have the tag set in "Car Tag".
-//     - A DeliveryManager must exist (it finds Houses
-//       automatically).
-//     - A GameManager must exist for score/money rewards.
-//
-//  9. Repeat steps 2-7 for every house in your scene.
-//     Each house is an independent delivery target.
-// ============================================================
-
 using UnityEngine;
 
 public class House : MonoBehaviour
@@ -50,16 +10,22 @@ public class House : MonoBehaviour
     [SerializeField] private bool requireStop = false;
     [SerializeField] private float maxDeliverySpeed = 1f;
 
+    [Header("Active Timing")]
+    [Tooltip("Minimum time the delivery request stays active.")]
+    [SerializeField] private float minActiveTime = 15f;
+    [Tooltip("Maximum time the delivery request stays active.")]
+    [SerializeField] private float maxActiveTime = 45f;
+    [Tooltip("How many seconds before despawning should it start blinking?")]
+    [SerializeField] private float blinkDuration = 5f;
+    [Tooltip("How fast the sprite blinks (smaller is faster).")]
+    [SerializeField] private float blinkInterval = 0.2f;
+
     [Header("Visuals")]
     [SerializeField] private SpriteRenderer spriteRenderer;
-    [SerializeField] private Sprite idleSprite;          // no delivery requested
-    [SerializeField] private Sprite requestedSprite;     // delivery has been requested
-    // deliveredSprite is intentionally removed — hook your animation/VFX here instead
 
     [Header("Success Feedback (optional)")]
-    [Tooltip("How long to show the success state before the house returns to idle.")]
+    [Tooltip("How long to wait before allowing another delivery (cooldown).")]
     [SerializeField] private float successDisplayTime = 1.5f;
-    // Drop a ParticleSystem, Animator, etc. here and call it from OnDeliverySuccess()
     [SerializeField] private ParticleSystem successEffect;
 
     // ── State ──────────────────────────────────────────────────────────────
@@ -68,6 +34,8 @@ public class House : MonoBehaviour
     private bool carInZone = false;
     private Rigidbody2D carRb;
 
+    private Coroutine timeoutCoroutine;
+
     /// <summary>True while this house is waiting for a delivery.</summary>
     public bool WantsDelivery => wantsDelivery;
 
@@ -75,7 +43,8 @@ public class House : MonoBehaviour
 
     private void Start()
     {
-        UpdateSprite();
+        // Hide the package at the start of the game
+        if (spriteRenderer != null) spriteRenderer.enabled = false;
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -113,26 +82,68 @@ public class House : MonoBehaviour
     public void RequestDelivery()
     {
         deliveryCompleted = false;
-        wantsDelivery     = true;
-        UpdateSprite();
+        wantsDelivery = true;
+
+        // Show the package!
+        if (spriteRenderer != null) spriteRenderer.enabled = true;
+
+        // Start the countdown timer for despawning
+        if (timeoutCoroutine != null) StopCoroutine(timeoutCoroutine);
+        timeoutCoroutine = StartCoroutine(DeliveryTimeoutRoutine());
+    }
+
+    private System.Collections.IEnumerator DeliveryTimeoutRoutine()
+    {
+        float activeDuration = Random.Range(minActiveTime, maxActiveTime);
+        float solidTime = Mathf.Max(0, activeDuration - blinkDuration);
+
+        // 1. Wait for the solid time
+        yield return new WaitForSeconds(solidTime);
+
+        // 2. Blinking phase
+        float blinkTimer = 0f;
+        while (blinkTimer < blinkDuration)
+        {
+            if (spriteRenderer != null)
+                spriteRenderer.enabled = !spriteRenderer.enabled;
+
+            yield return new WaitForSeconds(blinkInterval);
+            blinkTimer += blinkInterval;
+        }
+
+        // 3. Timeout reached! Despawn the request.
+        TimeoutDelivery();
     }
 
     private void CompleteDelivery()
     {
+        if (timeoutCoroutine != null) StopCoroutine(timeoutCoroutine);
+
+        // Immediately hide the package once delivered
+        if (spriteRenderer != null) spriteRenderer.enabled = false;
+
         deliveryCompleted = true;
-        wantsDelivery     = false;
+        wantsDelivery = false;
         Debug.Log("Delivery completed at " + gameObject.name);
 
-        // ← ADD THIS LINE
         if (GameManager.Instance != null)
             GameManager.Instance.OnDeliveryComplete();
 
         StartCoroutine(OnDeliverySuccess());
     }
 
+    private void TimeoutDelivery()
+    {
+        // Hide the package if the player missed it
+        if (spriteRenderer != null) spriteRenderer.enabled = false;
+
+        deliveryCompleted = true;
+        wantsDelivery = false;
+        Debug.Log("Delivery timed out (despawned) at " + gameObject.name);
+    }
+
     /// <summary>
     /// Handles the success state. Add your animation / VFX / sound here.
-    /// The house stays in "success" for successDisplayTime, then returns to idle.
     /// </summary>
     private System.Collections.IEnumerator OnDeliverySuccess()
     {
@@ -140,17 +151,8 @@ public class House : MonoBehaviour
         if (successEffect != null)
             successEffect.Play();
 
-        // TODO: trigger an Animator state, show a score pop-up, play a sound, etc.
-
-        // ── Wait, then return to idle sprite ───────────────────────────────
+        // ── Wait before the house can be used again ────────────────────────
         yield return new WaitForSeconds(successDisplayTime);
-        UpdateSprite();
-    }
-
-    private void UpdateSprite()
-    {
-        if (spriteRenderer == null) return;
-        spriteRenderer.sprite = wantsDelivery ? requestedSprite : idleSprite;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
@@ -159,8 +161,12 @@ public class House : MonoBehaviour
 
     public void ResetDelivery()
     {
+        if (timeoutCoroutine != null) StopCoroutine(timeoutCoroutine);
+
+        // Ensure it stays hidden during the reset phase
+        if (spriteRenderer != null) spriteRenderer.enabled = false;
+
         deliveryCompleted = false;
-        wantsDelivery     = false;
-        UpdateSprite();
+        wantsDelivery = false;
     }
 }

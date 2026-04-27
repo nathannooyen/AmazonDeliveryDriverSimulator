@@ -85,29 +85,29 @@ public class CameraFollow : MonoBehaviour
             smoothSpeed * Time.deltaTime
         );
 
-        // ── Rotation ───────────────────────────────────────────────────────
-        if (followRotation)
-        {
-            float speed = targetRb != null ? targetRb.linearVelocity.magnitude : 0f;
+        // // ── Rotation ───────────────────────────────────────────────────────
+        // if (followRotation)
+        // {
+        //     float speed = targetRb != null ? targetRb.linearVelocity.magnitude : 0f;
 
-            // Only chase the car's angle when it's actually moving
-            if (speed >= minSpeedToRotate)
-            {
-                float targetAngle = target.eulerAngles.z;
+        //     // Only chase the car's angle when it's actually moving
+        //     if (speed >= minSpeedToRotate)
+        //     {
+        //         float targetAngle = target.eulerAngles.z;
 
-                // LerpAngle handles the 0/360 wrap-around correctly
-                currentAngle = Mathf.LerpAngle(
-                    currentAngle,
-                    targetAngle,
-                    rotationSmoothSpeed * Time.deltaTime
-                );
-            }
+        //         // LerpAngle handles the 0/360 wrap-around correctly
+        //         currentAngle = Mathf.LerpAngle(
+        //             currentAngle,
+        //             targetAngle,
+        //             rotationSmoothSpeed * Time.deltaTime
+        //         );
+        //     }
 
-            transform.rotation = Quaternion.Euler(0f, 0f, currentAngle);
-        }
-        else
-        {
-            transform.rotation = Quaternion.identity;
-        }
+        //     transform.rotation = Quaternion.Euler(0f, 0f, currentAngle);
+        // }
+        // else
+        // {
+        //     transform.rotation = Quaternion.identity;
+        // }
     }
 }

@@ -31,10 +31,10 @@ public class BuildingCollision : MonoBehaviour
 {
     [Header("Penalties")]
     [Tooltip("Score deducted on impact with a building.")]
-    public int scorePenalty = 200;
+    public int scorePenalty = 0;
 
     [Tooltip("Money deducted on impact with a building.")]
-    public int moneyPenalty = 15;
+    public int moneyPenalty = 0;
 
     [Header("Cooldown")]
     [Tooltip("Seconds before another collision can trigger a penalty. Prevents rapid repeated hits.")]

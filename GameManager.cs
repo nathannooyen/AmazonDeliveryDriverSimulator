@@ -45,9 +45,10 @@ public class GameManager : MonoBehaviour
     private int money;
 
     [Header("Delivery Rewards")]
-    public int minMoneyReward = 5;
-    public int maxMoneyReward = 20;
+    public int minMoneyReward = 20;
+    public int maxMoneyReward = 2000;
     public int scorePerDelivery = 100;
+    public float moneyMultiplier = 1.0f;
 
     public int Score => score;
     public int Money => money;
@@ -73,11 +74,21 @@ public class GameManager : MonoBehaviour
     public void OnDeliveryComplete()
     {
         score += scorePerDelivery;
-        int reward = Random.Range(minMoneyReward, maxMoneyReward + 1);
-        money += reward;
+
+        // We calculate the reward using the ranges you set in the Inspector
+        int baseReward = Random.Range(minMoneyReward, maxMoneyReward + 1);
+
+        // We multiply that base by your car's specific multiplier
+        int finalReward = Mathf.RoundToInt(baseReward * moneyMultiplier);
+
+        money += finalReward;
+
         SaveManager.SaveMoney(money);
-        Debug.Log($"Delivery complete! +{scorePerDelivery} score | +{reward} coins | Total — Score: {score}  Money: {money}");
+
+        // This tells the HUD to update the screen
         OnStatsChanged?.Invoke(score, money);
+
+        Debug.Log($"Delivery Complete! Base: {baseReward} | Mult: {moneyMultiplier}x | Total: {finalReward}");
     }
 
     public bool SpendMoney(int amount)
@@ -119,11 +130,21 @@ public class GameManager : MonoBehaviour
 
     public void OnGasEmpty()
     {
-        Debug.Log("Gas empty — opening upgrade menu.");
-        if (UpgradeMenuUI.Instance != null)
-            UpgradeMenuUI.Instance.ShowUpgradeMenu();
-        else
-            Debug.LogWarning("GameManager: No UpgradeMenuUI found in the scene.");
+        //Debug.Log("Gas empty — opening car shop.");
+        
+        //// Open the new Car Shop UI instead of the old upgrade menu
+        //if (CarShopUI.Instance != null)
+        //{
+        //    // If the menu isn't already open, open it
+        //    if (!CarShopUI.Instance.shopPanel.activeSelf)
+        //    {
+        //        CarShopUI.Instance.ToggleMenu();
+        //    }
+        //}
+        //else
+        //{
+        //    Debug.LogWarning("GameManager: No CarShopUI found in the scene.");
+        //}
     }
 
     public event System.Action<int, int> OnStatsChanged;

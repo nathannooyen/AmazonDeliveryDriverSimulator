@@ -38,6 +38,8 @@ public struct CarStats
     public float maxReverseSpeed;
     public float baseTurnSpeed;
 
+
+
     [Tooltip("How quickly the car slows when no throttle is applied.\n" +
              "0 = coasts forever. Higher values = faster stop.")]
     public float coastingDrag;
@@ -94,7 +96,7 @@ public struct CarStats
         s.driftSpeedThreshold  = 4f;
         s.driftTransitionSpeed = 6f;
         s.driftTurnMultiplier  = 1.8f;
-        s.brakeForce           = 18f;
+        s.brakeForce           = 6f;
 
         s.visualTiltAmount = 8f;
         s.visualTiltSpeed  = 8f;
@@ -118,6 +120,11 @@ public class CarController : MonoBehaviour
     private float steer;         // raw input (-1, 0, 1)
     private float currentSteer;  // smoothed value used for rotation
     private bool  brakeInput;
+
+    [Header("Handling")]
+    [Range(0f, 1f)]
+    // 0 = feels like it's on rails (perfect grip), 1 = feels like driving on ice
+    public float driftFactor = 0.9f;
 
     void Awake()
     {
@@ -238,6 +245,8 @@ public class CarController : MonoBehaviour
 
         // ── Visual tilt ────────────────────────────────────────────────────
         transform.rotation = Quaternion.Euler(0f, 0f, rb.rotation + visualTiltAngle);
+
+        KillOrthogonalVelocity();
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
@@ -249,4 +258,16 @@ public class CarController : MonoBehaviour
 
     /// <summary>Current speed as 0-1 fraction of maxSpeed.</summary>
     public float SpeedFraction => rb.linearVelocity.magnitude / stats.maxSpeed;
+
+    private void KillOrthogonalVelocity()
+    {
+        // 1. Get the direction the car is currently facing
+        Vector2 forwardVelocity = transform.up * Vector2.Dot(GetComponent<Rigidbody2D>().linearVelocity, transform.up);
+
+        // 2. Get the direction the car is sliding sideways
+        Vector2 rightVelocity = transform.right * Vector2.Dot(GetComponent<Rigidbody2D>().linearVelocity, transform.right);
+
+        // 3. Keep all the forward movement, but reduce the sideways movement based on the drift factor
+        GetComponent<Rigidbody2D>().linearVelocity = forwardVelocity + rightVelocity * driftFactor;
+    }
 }

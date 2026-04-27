@@ -39,7 +39,7 @@ public class TrafficCollision : MonoBehaviour
 {
     [Header("Penalties")]
     public int scorePenalty = 150;
-    public int moneyPenalty = 10;
+    public int moneyPenalty =   0;
 
     [Header("Cooldown")]
     [Tooltip("Seconds before another collision can trigger a penalty. Prevents rapid repeated hits.")]

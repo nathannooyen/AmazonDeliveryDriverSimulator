@@ -38,10 +38,10 @@ public class GasTank : MonoBehaviour
     public float maxGas = 100f;
 
     [Tooltip("Fuel drained per second while the car is moving.")]
-    public float drainRate = 5f;
+    public float drainRate = 0f; //this will change later when the game is closer to completion so that the gas actually drains when the car is moving
 
     [Tooltip("Fuel drained per second while the car is stationary (engine idling).")]
-    public float idleDrainRate = 1f;
+    public float idleDrainRate = 0f; //this will change later when the game is closer to completion so that the gas actually drains when the car is stationary
 
     [Tooltip("Speed (units/s) above which the driving drain rate is used.")]
     public float speedThreshold = 0.5f;
@@ -65,6 +65,10 @@ public class GasTank : MonoBehaviour
     private bool  gasEmpty = false;
     private Rigidbody2D rb;
     private Image sliderFill;
+
+    [Header("Runtime")]
+    [Tooltip("When false the gas will not drain (can be toggled from other scripts or the Inspector).")]
+    public bool drainEnabled = false; //stops draining fuel until the player starts driving
 
     public float FuelFraction => currentGas / maxGas;
 
@@ -92,10 +96,13 @@ public class GasTank : MonoBehaviour
     {
         if (gasEmpty) return;
 
-        // Drain fuel
-        float speed = rb != null ? rb.linearVelocity.magnitude : 0f;
-        float drain = speed >= speedThreshold ? drainRate : idleDrainRate;
-        currentGas  = Mathf.Max(0f, currentGas - drain * Time.deltaTime);
+        // Drain fuel only when enabled
+        if (drainEnabled)
+        {
+            float speed = rb != null ? rb.linearVelocity.magnitude : 0f;
+            float drain = speed >= speedThreshold ? drainRate : idleDrainRate;
+            currentGas  = Mathf.Max(0f, currentGas - drain * Time.deltaTime);
+        }
 
         // Update UI
         if (gasSlider != null)
@@ -133,6 +140,24 @@ public class GasTank : MonoBehaviour
     {
         currentGas = maxGas;
         gasEmpty   = false;
+    }
+
+    /// <summary>Stop fuel from draining (can be called from other scripts).</summary>
+    public void PauseDrain()
+    {
+        drainEnabled = false;
+    }
+
+    /// <summary>Allow fuel to drain again.</summary>
+    public void ResumeDrain()
+    {
+        drainEnabled = true;
+    }
+
+    /// <summary>Toggle the drain state.</summary>
+    public void ToggleDrain()
+    {
+        drainEnabled = !drainEnabled;
     }
 
     /// <summary>Upgrade the tank capacity and optionally refuel.</summary>
