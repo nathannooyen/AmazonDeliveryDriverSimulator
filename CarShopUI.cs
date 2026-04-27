@@ -1,13 +1,19 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
+using TMPro; // <-- REQUIRED for UI Text
 
-public partial class CarShopUI : MonoBehaviour
+public class CarShopUI : MonoBehaviour
 {
     public static CarShopUI Instance { get; private set; }
 
     [Header("UI References")]
     public GameObject shopPanel;
+
+    [Header("Button Text Labels")]
+    public TMP_Text crapCarText;
+    public TMP_Text porscheText;
+    public TMP_Text densmobileText;
 
     [Header("Car Reference")]
     public SpriteRenderer carSpriteRenderer;
@@ -25,13 +31,13 @@ public partial class CarShopUI : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        // Start with the CrapCar owned
         ownedCars.Add("CrapCar");
     }
 
     private void Start()
     {
         if (shopPanel != null) shopPanel.SetActive(false);
+        UpdateButtonText(); // Set the initial text when the game starts
     }
 
     private void Update()
@@ -47,52 +53,53 @@ public partial class CarShopUI : MonoBehaviour
         if (shopPanel == null) return;
         bool isMenuOpen = !shopPanel.activeSelf;
         shopPanel.SetActive(isMenuOpen);
-
-        // Pause/Unpause the world
         Time.timeScale = isMenuOpen ? 0f : 1f;
+
+        // Refresh the text every time we open the menu just to be safe
+        if (isMenuOpen) UpdateButtonText();
     }
 
     // --- BUTTON FUNCTIONS ---
-    // These match the 4 buttons on your UI.
-
-    // Acceleration: Lower numbers make the car feel "heavy" and slow to start.
-    // Top Speed: Lower numbers cap the max speed so you don't lose control.
 
     public void BuyCrapCar()
     {
-        // Very sluggish — good for learning the map
-        TryPurchaseOrSwitch("CrapCar", 0, crapCarSprite, 5f, 4f, 1f);
+        TryPurchaseOrSwitch("CrapCar", 0, crapCarSprite, 8f, 6f, 1f, 80f);
     }
 
     public void BuyPorsche()
     {
-        // Noticeable upgrade, but still very safe
-        TryPurchaseOrSwitch("Porsche", 500, porscheSprite, 8f, 7f, 2f);
+        TryPurchaseOrSwitch("Porsche", 500, porscheSprite, 14f, 12f, 2f, 120f);
     }
 
     public void BuyDensmobile()
     {
-        // The "fast" car, now capped at a reasonable cruising speed
-        TryPurchaseOrSwitch("Densmobile", 1000, densmobileSprite, 12f, 10f, 4f);
+        TryPurchaseOrSwitch("Densmobile", 5000, densmobileSprite, 20f, 16f, 4f, 150f);
     }
+
     // --- CORE LOGIC ---
 
-    private void TryPurchaseOrSwitch(string carName, int cost, Sprite carGraphic, float accel, float topSpeed, float incomeMult)
+    private void TryPurchaseOrSwitch(string carName, int cost, Sprite carGraphic, float accel, float topSpeed, float incomeMult, float turnSpeed)
     {
-        // 1. If we already own it, just switch for free
         if (ownedCars.Contains(carName))
         {
-            ApplyCarChange(carGraphic, accel, topSpeed, incomeMult);
+            ApplyCarChange(carGraphic, accel, topSpeed, incomeMult, turnSpeed);
             ToggleMenu();
             return;
         }
 
-        // 2. If not owned, check money in GameManager
         if (GameManager.Instance != null && GameManager.Instance.SpendMoney(cost))
         {
             ownedCars.Add(carName);
-            ApplyCarChange(carGraphic, accel, topSpeed, incomeMult);
+            UpdateButtonText(); // Refresh the labels so it says "Purchased"
+            ApplyCarChange(carGraphic, accel, topSpeed, incomeMult, turnSpeed);
             ToggleMenu();
+
+            // --- THE FIX: THIS TRIGGERS THE WIN SCREEN WHEN YOU BUY THE $5000 CAR ---
+            if (cost >= 5000)
+            {
+                FindAnyObjectByType<GameManager>().TriggerWinScreen();
+            }
+            // ------------------------------------------------------------------------
         }
         else
         {
@@ -100,23 +107,44 @@ public partial class CarShopUI : MonoBehaviour
         }
     }
 
-    private void ApplyCarChange(Sprite graphic, float accel, float topSpeed, float incomeMult)
+    private void ApplyCarChange(Sprite graphic, float accel, float topSpeed, float incomeMult, float turnSpeed)
     {
-        // Change the Visuals
         if (carSpriteRenderer != null && graphic != null)
             carSpriteRenderer.sprite = graphic;
 
-        // Change the Driving Stats
         if (playerCar != null)
         {
             playerCar.stats.accelerationForce = accel;
             playerCar.stats.maxSpeed = topSpeed;
+            playerCar.stats.steeringSpeed = turnSpeed;
         }
 
-        // Change the Money Multiplier
         if (GameManager.Instance != null)
         {
             GameManager.Instance.moneyMultiplier = incomeMult;
         }
+    }
+
+    // --- NEW: TEXT UPDATE LOGIC ---
+    private void UpdateButtonText()
+    {
+        // The starter car is always owned
+        if (crapCarText != null) crapCarText.text = "Purchased";
+
+        // Check if the list contains the Porsche. If yes, say Purchased. If no, show price.
+        if (porscheText != null)
+            porscheText.text = ownedCars.Contains("Porsche") ? "Purchased" : "$500";
+
+        if (densmobileText != null)
+            densmobileText.text = ownedCars.Contains("Densmobile") ? "Purchased" : "$5000";
+    }
+
+    public void QuitToDesktop()
+    {
+        // This prints to the console so you know the button works while testing
+        Debug.Log("Quitting Game...");
+
+        // This actually closes the built game
+        Application.Quit();
     }
 }

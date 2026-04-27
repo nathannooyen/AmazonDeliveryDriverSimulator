@@ -36,6 +36,8 @@
 // ============================================================
 
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using TMPro;
 
 public class GameManager : MonoBehaviour
 {
@@ -49,6 +51,13 @@ public class GameManager : MonoBehaviour
     public int maxMoneyReward = 2000;
     public int scorePerDelivery = 100;
     public float moneyMultiplier = 1.0f;
+
+    //variables for timer
+    [Header("Timer & Win Screen")]
+    public GameObject winPanel;
+    public TMP_Text winTimeText;
+    private float gameTimer = 0f;
+    private bool gameWon = false;
 
     public int Score => score;
     public int Money => money;
@@ -91,6 +100,14 @@ public class GameManager : MonoBehaviour
         Debug.Log($"Delivery Complete! Base: {baseReward} | Mult: {moneyMultiplier}x | Total: {finalReward}");
     }
 
+    void Update()
+    {
+        // Count up the timer every frame as long as the game isn't won yet
+        if (!gameWon)
+        {
+            gameTimer += Time.deltaTime;
+        }
+    }
     public bool SpendMoney(int amount)
     {
         if (amount > money) { Debug.Log($"Not enough money. Have {money}, need {amount}."); return false; }
@@ -151,4 +168,52 @@ public class GameManager : MonoBehaviour
 
     /// <summary>Fires on crash. Args = amounts LOST (not new totals). Use to flash HUD labels.</summary>
     public event System.Action<int, int> OnCollisionPenalty;
+
+    public void ResetGame()
+    {
+        Debug.Log("Resetting Game...");
+
+        // 1. Wipe all saved data (money, owned cars, etc.)
+        // If you don't want to lose saved money, delete this line!
+        PlayerPrefs.DeleteAll();
+
+        // 2. Unpause the game (just in case they clicked reset while the shop was open)
+        Time.timeScale = 1f;
+
+        // 3. Reload the current active scene to start fresh
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    public void TriggerWinScreen()
+    {
+        gameWon = true;
+        Time.timeScale = 0f; // Pause the game
+
+        if (winPanel != null) winPanel.SetActive(true);
+
+        // Format the raw seconds into MM:SS.XX
+        int minutes = Mathf.FloorToInt(gameTimer / 60f);
+        int seconds = Mathf.FloorToInt(gameTimer % 60f);
+        int hundredths = Mathf.FloorToInt((gameTimer * 100f) % 100f);
+        string formattedTime = string.Format("{0:00}:{1:00}.{2:00}", minutes, seconds, hundredths);
+
+        if (winTimeText != null)
+        {
+            winTimeText.text = "Congratulations!\nYour time was " + formattedTime;
+        }
+    }
+
+    public void ContinueFreePlay()
+    {
+        // Hide the victory screen panel
+        if (winPanel != null)
+        {
+            winPanel.SetActive(false);
+        }
+
+        // Unpause the game so the car can drive again
+        Time.timeScale = 1f;
+
+        Debug.Log("Continuing in Free Play mode!");
+    }
 }

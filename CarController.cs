@@ -19,11 +19,11 @@
 //  5. Set any public / [SerializeField] fields that appear in the Inspector.
 //
 //  For THIS project specifically:
-//  - CarController   -> attach to your car GameObject (needs Rigidbody2D).
-//  - House           -> attach to each house GameObject (needs a 2D Collider
-//                       set to "Is Trigger", and a SpriteRenderer).
+//  - CarController    -> attach to your car GameObject (needs Rigidbody2D).
+//  - House            -> attach to each house GameObject (needs a 2D Collider
+//                        set to "Is Trigger", and a SpriteRenderer).
 //  - DeliveryManager -> attach to any persistent/empty GameObject in the scene.
-//                       All Houses are found automatically at runtime.
+//                        All Houses are found automatically at runtime.
 // ============================================================
 
 using UnityEngine;
@@ -36,8 +36,7 @@ public struct CarStats
     public float accelerationForce;
     public float maxSpeed;
     public float maxReverseSpeed;
-    public float baseTurnSpeed;
-
+    public float steeringSpeed; // <--- CHANGED FROM baseTurnSpeed
 
 
     [Tooltip("How quickly the car slows when no throttle is applied.\n" +
@@ -62,6 +61,7 @@ public struct CarStats
     public float driftTransitionSpeed;
     public float driftTurnMultiplier;
 
+
     [Tooltip("Braking force applied while Shift is held.\n" +
              "Higher = harder stop. Stacks with reduced drift grip at speed for a skid feel.")]
     public float brakeForce;
@@ -73,11 +73,11 @@ public struct CarStats
     public static CarStats Default()
     {
         CarStats s;
-        s.accelerationForce    = 15f;
-        s.maxSpeed             = 10f;
-        s.maxReverseSpeed      = 5f;
-        s.baseTurnSpeed        = 160f;
-        s.coastingDrag         = 1f;
+        s.accelerationForce = 15f;
+        s.maxSpeed = 10f;
+        s.maxReverseSpeed = 5f;
+        s.steeringSpeed = 160f; // <--- CHANGED FROM baseTurnSpeed
+        s.coastingDrag = 1f;
 
         Keyframe[] keys = new Keyframe[]
         {
@@ -88,18 +88,18 @@ public struct CarStats
         };
         s.turnSpeedCurve = new AnimationCurve(keys);
 
-        s.steerInSpeed         = 12f;
-        s.steerOutSpeed        = 8f;
+        s.steerInSpeed = 12f;
+        s.steerOutSpeed = 8f;
 
-        s.normalGrip           = 0.9f;
-        s.driftGrip            = 0.3f;
-        s.driftSpeedThreshold  = 4f;
+        s.normalGrip = 0.9f;
+        s.driftGrip = 0.3f;
+        s.driftSpeedThreshold = 4f;
         s.driftTransitionSpeed = 6f;
-        s.driftTurnMultiplier  = 1.8f;
-        s.brakeForce           = 6f;
+        s.driftTurnMultiplier = 1.8f;
+        s.brakeForce = 6f;
 
         s.visualTiltAmount = 8f;
-        s.visualTiltSpeed  = 8f;
+        s.visualTiltSpeed = 8f;
         return s;
     }
 }
@@ -114,12 +114,12 @@ public class CarController : MonoBehaviour
     private float currentGrip;
     private float targetGrip;
     private float visualTiltAngle;
-    private bool  isDrifting;
+    private bool isDrifting;
 
     private float throttle;
     private float steer;         // raw input (-1, 0, 1)
     private float currentSteer;  // smoothed value used for rotation
-    private bool  brakeInput;
+    private bool brakeInput;
 
     [Header("Handling")]
     [Range(0f, 1f)]
@@ -128,7 +128,7 @@ public class CarController : MonoBehaviour
 
     void Awake()
     {
-        rb          = GetComponent<Rigidbody2D>();
+        rb = GetComponent<Rigidbody2D>();
         currentGrip = stats.normalGrip;
     }
 
@@ -161,35 +161,36 @@ public class CarController : MonoBehaviour
         // ── Visual tilt ────────────────────────────────────────────────────
         float tiltTarget = -steer * stats.visualTiltAmount *
                            (rb.linearVelocity.magnitude / stats.maxSpeed);
-        visualTiltAngle  = Mathf.Lerp(visualTiltAngle, tiltTarget,
+        visualTiltAngle = Mathf.Lerp(visualTiltAngle, tiltTarget,
                                       Time.deltaTime * stats.visualTiltSpeed);
     }
 
     void FixedUpdate()
     {
-        float speed         = rb.linearVelocity.magnitude;
+        float speed = rb.linearVelocity.magnitude;
         float speedFraction = speed / stats.maxSpeed;
 
         // ── Smooth steering ────────────────────────────────────────────────
         // Ramps in quickly when a key is held, eases out when released.
         float steerRate = (Mathf.Abs(steer) > 0.01f) ? stats.steerInSpeed : stats.steerOutSpeed;
-        currentSteer    = Mathf.MoveTowards(currentSteer, steer, steerRate * Time.fixedDeltaTime);
+        currentSteer = Mathf.MoveTowards(currentSteer, steer, steerRate * Time.fixedDeltaTime);
 
         // ── Turn speed ─────────────────────────────────────────────────────
         float curveMultiplier = stats.turnSpeedCurve.Evaluate(speedFraction);
 
         Vector2 velocityDir = rb.linearVelocity.normalized;
-        float   driftAmount = Mathf.Abs(Vector2.Dot(velocityDir, transform.right));
-        float   driftBoost  = isDrifting
+        float driftAmount = Mathf.Abs(Vector2.Dot(velocityDir, transform.right));
+        float driftBoost = isDrifting
                                   ? Mathf.Lerp(1f, stats.driftTurnMultiplier, driftAmount)
                                   : 1f;
 
-        float finalTurnSpeed = stats.baseTurnSpeed * curveMultiplier * driftBoost;
+        // <--- CHANGED FROM stats.baseTurnSpeed
+        float finalTurnSpeed = stats.steeringSpeed * curveMultiplier * driftBoost;
 
-        float movingDirRaw  = Vector2.Dot(rb.linearVelocity, transform.up);
+        float movingDirRaw = Vector2.Dot(rb.linearVelocity, transform.up);
         // Use a small deadzone so the car doesn't lose steering at near-zero speed,
         // and clamp to -1/1 so the magnitude doesn't inflate turn speed.
-        float movingDir     = Mathf.Abs(movingDirRaw) > 0.05f ? Mathf.Sign(movingDirRaw) : 1f;
+        float movingDir = Mathf.Abs(movingDirRaw) > 0.05f ? Mathf.Sign(movingDirRaw) : 1f;
 
         float rotationDelta = currentSteer * finalTurnSpeed
                             * Mathf.Clamp01(speedFraction)
@@ -204,11 +205,11 @@ public class CarController : MonoBehaviour
             Vector2 force = transform.up * throttle * stats.accelerationForce;
 
             float forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
-            bool goingForward  = throttle > 0f;
-            bool goingBack     = throttle < 0f;
+            bool goingForward = throttle > 0f;
+            bool goingBack = throttle < 0f;
 
             bool belowForwardMax = goingForward && forwardSpeed < stats.maxSpeed;
-            bool belowReverseMax = goingBack    && forwardSpeed > -stats.maxReverseSpeed;
+            bool belowReverseMax = goingBack && forwardSpeed > -stats.maxReverseSpeed;
 
             if (belowForwardMax || belowReverseMax)
                 rb.AddForce(force, ForceMode2D.Force);
@@ -217,8 +218,8 @@ public class CarController : MonoBehaviour
         // ── Braking (Shift held) ───────────────────────────────────────────
         if (brakeInput && speed > 0.01f)
         {
-            float   forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
-            Vector2 brakeForce   = -(Vector2)transform.up
+            float forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
+            Vector2 brakeForce = -(Vector2)transform.up
                                    * Mathf.Sign(forwardSpeed)
                                    * stats.brakeForce
                                    * Time.fixedDeltaTime;
@@ -234,14 +235,14 @@ public class CarController : MonoBehaviour
         if (throttle == 0f && !brakeInput && stats.coastingDrag > 0f)
         {
             float forwardSpeed = Vector2.Dot(rb.linearVelocity, transform.up);
-            float dragForce    = forwardSpeed * stats.coastingDrag;
+            float dragForce = forwardSpeed * stats.coastingDrag;
             rb.linearVelocity -= (Vector2)transform.up * dragForce * Time.fixedDeltaTime;
         }
 
         // ── Grip / lateral damping ─────────────────────────────────────────
-        Vector2 rightDir     = transform.right;
-        float   lateralSpeed = Vector2.Dot(rb.linearVelocity, rightDir);
-        rb.linearVelocity   -= rightDir * lateralSpeed * currentGrip;
+        Vector2 rightDir = transform.right;
+        float lateralSpeed = Vector2.Dot(rb.linearVelocity, rightDir);
+        rb.linearVelocity -= rightDir * lateralSpeed * currentGrip;
 
         // ── Visual tilt ────────────────────────────────────────────────────
         transform.rotation = Quaternion.Euler(0f, 0f, rb.rotation + visualTiltAngle);

@@ -13,43 +13,23 @@
 //
 //  4. You do NOT need to assign any Houses manually — the script
 //     finds all House objects in the scene automatically at Start.
-//
-//  5. In the Inspector, set:
-//     - Retry Delay            : seconds between delivery checks
-//                                when no house is waiting (default 3)
-//     - Post Delivery Delay    : pause after a delivery completes
-//                                before assigning the next (default 1.5)
-//     - Allow Multiple Active  : whether multiple houses can
-//                                request deliveries simultaneously
-//
-//  6. PREREQUISITES:
-//     - At least one GameObject with the House script in the scene.
-//     - GameManager must be present for score/money rewards.
 // ============================================================
 
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// Randomly selects a House to want a delivery.
-/// - If no house currently needs a delivery (or there is only 1 house total),
-///   waits <see cref="retryDelay"/> seconds before assigning a new one.
-/// - Attach this to any persistent GameObject in the scene.
-///   All House objects are found automatically on Start.
-/// </summary>
 public class DeliveryManager : MonoBehaviour
 {
-    [Header("Timing")]
-    [Tooltip("Seconds to wait before assigning a new delivery when the queue is empty or only 1 house exists.")]
-    public float retryDelay = 3f;
+    [Header("Spawning Limits")]
+    [Tooltip("How often (in seconds) the game tries to spawn a new delivery.")]
+    public float spawnDelay = 2f;
 
-    [Tooltip("Seconds to wait after a delivery is completed before picking the next house.")]
+    [Tooltip("The maximum number of deliveries allowed on the map at the exact same time.")]
+    public int maxActiveDeliveries = 3;
+
+    [Tooltip("Seconds to wait after a delivery is completed before THAT specific house can be picked again.")]
     public float postDeliveryDelay = 1.5f;
-
-    [Header("Optional")]
-    [Tooltip("If true, multiple houses can want a delivery at the same time.")]
-    public bool allowMultipleActiveDeliveries = false;
 
     // ── internals ──────────────────────────────────────────────────────────
     private House[] allHouses;
@@ -72,50 +52,50 @@ public class DeliveryManager : MonoBehaviour
     {
         while (true)
         {
-            // ── Edge-case: single house or no pending delivery ─────────────
-            bool edgeCase = allHouses.Length <= 1 || !AnyHouseWantsDelivery();
-
-            if (edgeCase)
+            // 1. Count how many houses currently have an active delivery
+            int activeCount = 0;
+            foreach (House h in allHouses)
             {
-                yield return new WaitForSeconds(retryDelay);
+                if (h.WantsDelivery) activeCount++;
             }
 
-            // ── Pick a random eligible house ───────────────────────────────
-            House chosen = PickRandomEligibleHouse();
-
-            if (chosen != null)
+            // 2. If we haven't hit our maximum limit, try to spawn another one!
+            if (activeCount < maxActiveDeliveries)
             {
-                chosen.RequestDelivery();
-                Debug.Log($"DeliveryManager: Delivery requested at {chosen.gameObject.name}");
+                House chosen = PickRandomEligibleHouse();
 
-                // ── Wait until that delivery is complete ───────────────────
-                yield return new WaitUntil(() => chosen.IsDeliveryComplete());
-                yield return new WaitForSeconds(postDeliveryDelay);
+                if (chosen != null)
+                {
+                    // Start a separate background process just for this house
+                    StartCoroutine(HandleHouseLifecycle(chosen));
+                }
+            }
 
-                // Reset the house so it can receive future deliveries
-                chosen.ResetDelivery();
-            }
-            else
-            {
-                // All houses already have pending or completed deliveries
-                yield return new WaitForSeconds(retryDelay);
-            }
+            // 3. Wait a few seconds before trying to spawn again
+            yield return new WaitForSeconds(spawnDelay);
         }
+    }
+
+    private IEnumerator HandleHouseLifecycle(House house)
+    {
+        // Turn the house "On"
+        house.RequestDelivery();
+        Debug.Log($"DeliveryManager: Delivery requested at {house.gameObject.name}");
+
+        // Wait here until the player actually delivers to THIS specific house
+        yield return new WaitUntil(() => house.IsDeliveryComplete());
+
+        // Once delivered, wait for the cooldown timer
+        yield return new WaitForSeconds(postDeliveryDelay);
+
+        // Reset the house so it is empty and ready to be picked again in the future
+        house.ResetDelivery();
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    /// <summary>Returns true if at least one house currently wants a delivery.</summary>
-    private bool AnyHouseWantsDelivery()
-    {
-        foreach (House h in allHouses)
-            if (h.WantsDelivery) return true;
-        return false;
-    }
-
     /// <summary>
-    /// Returns a random house that is eligible to receive a new delivery request:
-    /// not already completed and (if multi-delivery is off) not already waiting.
+    /// Returns a random house that is empty and ready for a delivery.
     /// </summary>
     private House PickRandomEligibleHouse()
     {
@@ -123,11 +103,12 @@ public class DeliveryManager : MonoBehaviour
 
         foreach (House h in allHouses)
         {
-            bool alreadyDone    = h.IsDeliveryComplete();
-            bool alreadyWaiting = allowMultipleActiveDeliveries ? false : h.WantsDelivery;
-
-            if (!alreadyDone && !alreadyWaiting)
+            // A house is eligible if it does NOT want a delivery right now, 
+            // and it is NOT currently waiting on its cooldown timer.
+            if (!h.WantsDelivery && !h.IsDeliveryComplete())
+            {
                 eligible.Add(h);
+            }
         }
 
         if (eligible.Count == 0) return null;
@@ -137,11 +118,14 @@ public class DeliveryManager : MonoBehaviour
 
     // ── Public API ─────────────────────────────────────────────────────────
 
-    /// <summary>Force an immediate re-assignment (e.g. after resetting the level).</summary>
     public void RestartDeliveries()
     {
         if (managerCoroutine != null) StopCoroutine(managerCoroutine);
+
+        StopAllCoroutines(); // Stop all individual house timers too
+
         foreach (House h in allHouses) h.ResetDelivery();
+
         managerCoroutine = StartCoroutine(ManageDeliveries());
     }
 }
